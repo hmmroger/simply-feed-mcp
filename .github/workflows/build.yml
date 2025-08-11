@@ -1,0 +1,38 @@
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [20, 22]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.version }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: lint
+        run: npm run lint
+
+      - name: build
+        run: npm run build

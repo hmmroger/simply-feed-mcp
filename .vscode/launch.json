@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Run Server",
+      "type": "node",
+      "request": "launch",
+      "args": ["${workspaceFolder}/dist/index.js", "--worker", "--run_once"]
+    }
+  ]
+}

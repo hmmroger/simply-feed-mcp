@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "target": "esnext",
+    "lib": ["dom", "esnext"],
+    "sourceMap": true,
+    "rootDir": "src",
+    "outDir": "./dist",
+    "strict": true,
+    "strictNullChecks": true,
+    "skipLibCheck": true,
+    "noImplicitReturns": true,
+    "noUncheckedSideEffectImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitAny": true,
+    "esModuleInterop": true,
+    "declaration": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules/**", "dist"]
+}
