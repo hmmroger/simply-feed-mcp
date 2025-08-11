@@ -21,8 +21,8 @@ import { FileTableReadWriter } from "./file-table-read-writer.js";
 const DEFAULT_LLM_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
 const DEFAULT_LLM_MODEL = "gemini-2.5-flash-lite";
 
-const FEED_TABLE_NAME = "feeds.table";
-const FEED_ITEMS_TABLE_NAME = "feeditems.table";
+const FEED_TABLE_NAME = "feeds";
+const FEED_ITEMS_TABLE_NAME = "feeditems";
 const FEED_PARTITION = "default";
 const FEEDS_CACHE_MAX_AGE_IN_MINUTES = 5;
 const DEFAULT_RETENTION_DAYS = 5;
@@ -61,9 +61,9 @@ export class SimplyFeedManager {
         throw new Error(`Missing data folder.`);
       }
 
-      const feedTableFile = join(dataFolder, `${FEED_TABLE_NAME}.json`);
+      const feedTableFile = join(dataFolder, `${FEED_TABLE_NAME}.table.json`);
       this.feedReadWriter = new FileTableReadWriter(logger, feedTableFile);
-      const itemsTableFile = join(dataFolder, `${FEED_ITEMS_TABLE_NAME}.json`);
+      const itemsTableFile = join(dataFolder, `${FEED_ITEMS_TABLE_NAME}.table.json`);
       this.feedItemsReadWriter = new FileTableReadWriter(logger, itemsTableFile);
     }
 
