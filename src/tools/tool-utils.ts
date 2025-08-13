@@ -54,7 +54,7 @@ export const toFeedItemSummaryResult = (feedItem: FeedItem) => {
     link: feedItem.link,
     author: feedItem.author,
     mentionedLinks: feedItem.refLinks?.slice(0, MAX_MENTIONED_LINKS),
-    publishedTime: new Date(feedItem.publishedTime).toString(),
+    publishedTimeUtc: new Date(feedItem.publishedTime).toUTCString(),
   };
 };
 

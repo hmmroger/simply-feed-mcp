@@ -231,7 +231,7 @@ export class SimplyFeedManager {
     return allRecentItems.slice(skip || 0).slice(0, top || undefined);
   }
 
-  public async queryItems(query: string, feedFilter?: string, top?: number, skip?: number): Promise<FeedItem[]> {
+  public async queryItems(query: string, feedId?: string, top?: number, skip?: number): Promise<FeedItem[]> {
     query = query.trim();
     if (!query) {
       return [];
@@ -240,7 +240,7 @@ export class SimplyFeedManager {
     const topicsRes = await this.determineTopics(query);
     const topics = new Set<string>(topicsRes ? topicsRes.topics.concat(query.toLowerCase().split(" ")) : query.toLowerCase().split(" "));
 
-    const feeds = feedFilter ? await this.queryFeeds(feedFilter) : await this.getFeeds();
+    const feeds = feedId ? [await this.getFeed(feedId)].filter((feed) => !!feed) : await this.getFeeds();
     for (const feed of feeds) {
       await this.getItemsFromFeed(feed.id);
     }
