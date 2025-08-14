@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SimplyFeedManager } from "../simply-feed/simply-feed-manager.js";
-import { getErrorToolResult, textToolResult } from "./tool-utils.js";
+import { getErrorToolResult, textToolResult, toFeedItemResult } from "./tool-utils.js";
 
 export const registerGetItemDetailsTool = async (mcpServer: McpServer, feedManager: SimplyFeedManager) => {
   mcpServer.tool(
@@ -13,8 +13,13 @@ export const registerGetItemDetailsTool = async (mcpServer: McpServer, feedManag
     },
     async ({ feedId, id }) => {
       try {
+        const feed = await feedManager.getFeed(feedId);
+        if (!feed) {
+          throw new Error("Ensure correct feedID is used.");
+        }
+
         const item = await feedManager.getItem(feedId, id);
-        return textToolResult([`Details for item: ${JSON.stringify(item)}`]);
+        return textToolResult([`Details for item: ${JSON.stringify(toFeedItemResult(item, true, feed.title))}`]);
       } catch (error) {
         return getErrorToolResult(error, "Failed to get item details.");
       }

@@ -3,7 +3,8 @@ import { Feed, FeedItem } from "../simply-feed/simply-feed.types.js";
 // keep this low since a post may have lots of links
 const MAX_MENTIONED_LINKS = 2;
 
-export const DEFAULT_ITEMS_TOP = 15;
+export const MAX_ITEMS_TOP = 50;
+export const DEFAULT_ITEMS_TOP = 25;
 export const DEFAULT_FEEDS_TOP = 10;
 
 /**
@@ -40,25 +41,51 @@ export const getErrorToolResult = (error: unknown, fallbackMessage: string) => {
 };
 
 /**
- * Converts a FeedItem to a summary result object with essential information.
+ * Converts a FeedItem to a result object for tool responses, with optional detailed information.
  *
- * @param feedItem - The feed item to convert to summary format
- * @returns Summary object containing id, feedId, content, topics, link, author, mentionedLinks, and publishedTime
+ * @param feedItem - The feed item to convert to result format
+ * @param isDetails - Whether to include detailed fields (content, subtitle, categories, imageUrl)
+ * @param feedName - Optional feed name to include in the result
+ * @param timeZone - Optional timezone for formatting the published time (defaults to UTC)
+ * @returns Result object with basic fields (id, feedId, feedName, summary, topics, link, author, mentionedLinks, publishedTime)
+ *          and additional detailed fields when isDetails is true
  */
-export const toFeedItemSummaryResult = (feedItem: FeedItem) => {
-  return {
+export const toFeedItemResult = (feedItem: FeedItem, isDetails: boolean, feedName?: string, timeZone?: string) => {
+  const publishedDateTime = new Date(feedItem.publishedTime);
+  const publishedTime = timeZone
+    ? new Intl.DateTimeFormat(undefined, { timeZone, dateStyle: "medium", timeStyle: "medium" }).format(publishedDateTime)
+    : publishedDateTime.toUTCString();
+  const result = {
     id: feedItem.id,
     feedId: feedItem.feedId,
-    content: feedItem.summary || feedItem.description || feedItem.title,
-    topics: feedItem.topics || feedItem.categories,
+    feedName,
+    summary: feedItem.summary || feedItem.description,
+    topics: feedItem.topics,
     link: feedItem.link,
     author: feedItem.author,
     mentionedLinks: feedItem.refLinks?.slice(0, MAX_MENTIONED_LINKS),
-    publishedTimeUtc: new Date(feedItem.publishedTime).toUTCString(),
+    publishedTime,
   };
+
+  return isDetails
+    ? {
+        ...result,
+        mentionedLinks: undefined,
+        content: feedItem.content,
+        subtitle: feedItem.subtitle,
+        categories: feedItem.categories,
+        imageUrl: feedItem.imageUrl,
+      }
+    : result;
 };
 
-export const toFeedSummaryResult = (feed: Feed) => {
+/**
+ * Converts a Feed to a simplified result object for tool responses.
+ *
+ * @param feed - The feed object to convert to result format
+ * @returns Result object containing feedId, name, and latestItemPublishedTime as a string
+ */
+export const toFeedResult = (feed: Feed) => {
   return {
     feedId: feed.id,
     name: feed.title,
