@@ -120,11 +120,11 @@ export class SimplyFeedManager {
     return feed;
   }
 
-  public async getFeeds(top?: number, skip?: number): Promise<Feed[]> {
+  public async getFeeds(limit?: number, skip?: number): Promise<Feed[]> {
     if (this.cachedFeeds.size && Date.now() - this.cachedFeedsTimestamp < FEEDS_CACHE_MAX_AGE_IN_MINUTES * 60 * 1000) {
       return Array.from(this.cachedFeeds.values())
         .slice(skip || 0)
-        .slice(0, top || undefined);
+        .slice(0, limit || undefined);
     }
 
     const feeds = await this.feedReadWriter.getAllObjects<Feed>();
@@ -133,17 +133,17 @@ export class SimplyFeedManager {
     });
 
     this.cachedFeedsTimestamp = Date.now();
-    return feeds.slice(skip || 0).slice(0, top || undefined);
+    return feeds.slice(skip || 0).slice(0, limit || undefined);
   }
 
-  public async queryFeeds(query: string, top?: number, skip?: number): Promise<Feed[]> {
+  public async queryFeeds(query: string, limit?: number, skip?: number): Promise<Feed[]> {
     const feeds = await this.getFeeds();
     const queries = query
       .split(" ")
       .map((query) => query.trim())
       .filter((query) => !!query);
     const matchedFeeds = feeds.filter((feed) => queries.some((query) => feed.title.includes(query)));
-    return matchedFeeds.slice(skip || 0).slice(0, top || undefined);
+    return matchedFeeds.slice(skip || 0).slice(0, limit || undefined);
   }
 
   public async getItem(feedId: string, id: string): Promise<FeedItem> {
@@ -169,7 +169,7 @@ export class SimplyFeedManager {
     return foundItem;
   }
 
-  public async getItemsFromFeed(id: string, top?: number, skip?: number, startPublishedTime?: number): Promise<FeedItem[]> {
+  public async getItemsFromFeed(id: string, limit?: number, skip?: number, startPublishedTime?: number): Promise<FeedItem[]> {
     const feed = await this.getFeed(id);
     if (!feed) {
       return [];
@@ -214,10 +214,11 @@ export class SimplyFeedManager {
       );
     }
 
-    return cachedItems ? cachedItems.slice(skip || 0).slice(0, top || undefined) : [];
+    cachedItems.sort((a, b) => b.publishedTime - a.publishedTime);
+    return cachedItems ? cachedItems.slice(skip || 0).slice(0, limit || undefined) : [];
   }
 
-  public async getRecentItems(recencyInMinutes: number, top?: number, skip?: number): Promise<FeedItem[]> {
+  public async getRecentItems(recencyInMinutes: number, limit?: number, skip?: number): Promise<FeedItem[]> {
     const recencyCutOff = Date.now() - recencyInMinutes * 60 * 1000;
     const allRecentItems: FeedItem[] = [];
 
@@ -228,17 +229,14 @@ export class SimplyFeedManager {
     }
 
     allRecentItems.sort((a, b) => b.publishedTime - a.publishedTime);
-    return allRecentItems.slice(skip || 0).slice(0, top || undefined);
+    return allRecentItems.slice(skip || 0).slice(0, limit || undefined);
   }
 
-  public async queryItems(query: string, feedId?: string, top?: number, skip?: number): Promise<FeedItem[]> {
+  public async queryItems(query: string, feedId?: string, limit?: number, skip?: number): Promise<FeedItem[]> {
     query = query.trim();
     if (!query) {
       return [];
     }
-
-    const topicsRes = await this.determineTopics(query);
-    const topics = new Set<string>(topicsRes ? topicsRes.topics.concat(query.toLowerCase().split(" ")) : query.toLowerCase().split(" "));
 
     const feeds = feedId ? [await this.getFeed(feedId)].filter((feed) => !!feed) : await this.getFeeds();
     for (const feed of feeds) {
@@ -246,22 +244,40 @@ export class SimplyFeedManager {
     }
 
     const queryFeedsId = new Set<string>(feeds.map((feed) => feed.id));
-    let matchedItems: FeedItem[] = [];
+
+    const queries = query.toLowerCase().split(" ");
+    const topicsRes = await this.determineTopics(query);
+    const topics = new Set<string>(topicsRes ? topicsRes.topics : queries);
+
+    const matchedItems: { item: FeedItem; matchType: number }[] = [];
     for (const [feedId, feedItems] of this.cachedItems.entries()) {
       if (!queryFeedsId.has(feedId)) {
         continue;
       }
 
       feedItems.forEach((item) => {
-        if (item.topics?.some((topic) => topics.has(topic)) || Array.from(topics).some((topic) => item.title.includes(topic))) {
-          matchedItems.push(item);
+        const matchedTopics = item.topics?.filter((topic) => topics.has(topic)).length;
+        if (matchedTopics) {
+          matchedItems.push({ item, matchType: topics.size - matchedTopics });
+          return;
         }
       });
     }
 
-    this.logger.debug(`${matchedItems.length} items found matching topics: ${topicsRes?.topics.join(",")}`);
-    matchedItems = matchedItems.slice(skip || 0);
-    return matchedItems.slice(0, top || undefined);
+    this.logger.debug(`${matchedItems.length} items found matching topics: ${topicsRes?.topics.join(",")} for query: ${query}.`);
+
+    matchedItems.sort((a, b) => {
+      if (a.matchType === b.matchType) {
+        return b.item.publishedTime - a.item.publishedTime;
+      }
+
+      return a.matchType - b.matchType;
+    });
+
+    return matchedItems
+      .map((item) => item.item)
+      .slice(skip || 0)
+      .slice(0, limit || undefined);
   }
 
   public async refreshFeed(id: string): Promise<FeedItem[]> {

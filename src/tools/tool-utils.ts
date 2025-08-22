@@ -3,9 +3,9 @@ import { Feed, FeedItem } from "../simply-feed/simply-feed.types.js";
 // keep this low since a post may have lots of links
 const MAX_MENTIONED_LINKS = 2;
 
-export const MAX_ITEMS_TOP = 50;
-export const DEFAULT_ITEMS_TOP = 25;
-export const DEFAULT_FEEDS_TOP = 10;
+export const MAX_ITEMS_LIMIT = 50;
+export const DEFAULT_ITEMS_LIMIT = 25;
+export const DEFAULT_FEEDS_LIMIT = 10;
 
 /**
  * Creates a tool result object with text content.
@@ -59,6 +59,7 @@ export const toFeedItemResult = (feedItem: FeedItem, isDetails: boolean, feedNam
     id: feedItem.id,
     feedId: feedItem.feedId,
     feedName,
+    title: feedItem.title,
     summary: feedItem.summary || feedItem.description,
     topics: feedItem.topics,
     link: feedItem.link,

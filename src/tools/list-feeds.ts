@@ -1,23 +1,24 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SimplyFeedManager } from "../simply-feed/simply-feed-manager.js";
-import { DEFAULT_FEEDS_TOP, getErrorToolResult, MAX_ITEMS_TOP, textToolResult, toFeedResult } from "./tool-utils.js";
+import { DEFAULT_FEEDS_LIMIT, getErrorToolResult, MAX_ITEMS_LIMIT, textToolResult, toFeedResult } from "./tool-utils.js";
 
 export const registerListFeedsTool = async (mcpServer: McpServer, feedManager: SimplyFeedManager) => {
   mcpServer.tool(
     "list-feeds",
-    "Retrieve a list of all configured RSS/news feeds with optional filtering and pagination support.",
+    "Retrieve a list of all configured RSS/news feeds with pagination support. Use this tool when you need to find a specific feed by name or get all available feeds before working with feed items.",
     {
-      feedNameFilter: z.string().optional().describe("Optional filter string to search for feeds by name."),
-      top: z.number().max(MAX_ITEMS_TOP).optional().describe(`Number of feeds to return per page (default: ${DEFAULT_FEEDS_TOP}).`),
+      limit: z
+        .number()
+        .max(MAX_ITEMS_LIMIT)
+        .optional()
+        .describe(`Number of feeds to return per page (default: ${DEFAULT_FEEDS_LIMIT}, max: ${MAX_ITEMS_LIMIT}).`),
       skip: z.number().optional().describe("Number of feeds to skip for pagination (default: 0)."),
     },
-    async ({ feedNameFilter, top, skip }) => {
+    async ({ limit, skip }) => {
       try {
-        const feeds = feedNameFilter
-          ? await feedManager.queryFeeds(feedNameFilter, top || DEFAULT_FEEDS_TOP, skip)
-          : await feedManager.getFeeds(top || DEFAULT_FEEDS_TOP, skip);
-        return textToolResult([`Found feeds: ${JSON.stringify(feeds.map((feed) => toFeedResult(feed)))}`]);
+        const feeds = await feedManager.getFeeds(limit || DEFAULT_FEEDS_LIMIT, skip);
+        return textToolResult([`Available feeds (${feeds.length}): ${JSON.stringify(feeds.map((feed) => toFeedResult(feed)))}`]);
       } catch (error) {
         return getErrorToolResult(error, "Failed to list feeds.");
       }

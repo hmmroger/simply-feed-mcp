@@ -7,16 +7,22 @@ A Model Context Protocol (MCP) server for managing and querying RSS/news feeds. 
 This server provides the following MCP tools:
 
 ### `get-recent-feed-items`
-Retrieve the most recent items from all configured feeds.
+Retrieve the most recent items from all configured news/RSS feeds within a specified time window.
 - `recencyInMinutes` (optional): Look back period in minutes (default: 120)
-- `top` (optional): Number of items to return (max: 30, default: 15)
+- `limit` (optional): Number of items to return (max: 50, default: 25)
+- `skip` (optional): Number of items to skip for pagination
+
+### `get-feed-items`
+Retrieve items from a specified news/RSS feed, ordered by recency (newest first), with pagination support.
+- `feedId` (required): The news/RSS feed ID from which to get items
+- `limit` (optional): Number of items to return (max: 50, default: 25)
 - `skip` (optional): Number of items to skip for pagination
 
 ### `query-feed-items`
 Search and retrieve items using natural language queries.
 - `query` (required): Description of the items to search for
 - `feedId` (optional): Filter results to a specific feed
-- `top` (optional): Number of items to return (max: 30, default: 15)
+- `limit` (optional): Number of items to return (max: 50, default: 25)
 - `skip` (optional): Number of items to skip for pagination
 
 ### `get-item-details`
@@ -24,14 +30,10 @@ Get full details for a specific feed item.
 - `feedId` (required): The feed ID containing the item
 - `id` (required): The specific item ID
 
-### `list-feed-items`
-List items from all or specific feeds.
-- `feedId` (optional): Filter to a specific feed
-- `top` (optional): Number of items to return
-- `skip` (optional): Number of items to skip for pagination
-
 ### `list-feeds`
-List all configured RSS feeds.
+Retrieve a list of all configured RSS/news feeds with pagination support.
+- `limit` (optional): Number of feeds to return (max: 50, default: 10)
+- `skip` (optional): Number of feeds to skip for pagination
 
 ## Installation
 
