@@ -3,9 +3,9 @@ import { z } from "zod";
 import { SimplyFeedManager } from "../simply-feed/simply-feed-manager.js";
 import { DEFAULT_ITEMS_LIMIT, getErrorToolResult, MAX_ITEMS_LIMIT, textToolResult, toFeedItemResult } from "./tool-utils.js";
 
-export const registerQueryFeedItemsTool = async (mcpServer: McpServer, feedManager: SimplyFeedManager) => {
+export const registerSearchFeedItemsTool = async (mcpServer: McpServer, feedManager: SimplyFeedManager) => {
   mcpServer.tool(
-    "query-feed-items",
+    "search-feed-items",
     "Search and retrieve items from all configured news/RSS feeds using queries.",
     {
       query: z.string().describe("Description of the news/RSS feed items to search for."),

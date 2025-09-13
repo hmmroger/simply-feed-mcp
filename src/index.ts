@@ -14,6 +14,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { FeedConfigProvider } from "./worker/feed-config-provider.types.js";
 import { createMcpServer } from "./simply-feed-mcp.js";
 import { SimplyFeedMcpEnvs } from "./simply-feed-mcp.types.js";
+import { VERSION } from "./version.js";
 
 const DEFAULT_FEEDS_CONFIG_FILE_NAME = "feeds.json";
 const DEFAULT_REFRESH_MINUTES = 15;
@@ -24,6 +25,7 @@ const __dirname = dirname(__filename);
 
 const main = async () => {
   const argv = yargs(hideBin(process.argv))
+    .version(VERSION)
     .option("worker", {
       type: "boolean",
       description: "Start Simply Feed MCP worker only.",

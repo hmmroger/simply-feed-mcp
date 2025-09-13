@@ -18,7 +18,7 @@ Retrieve items from a specified news/RSS feed, ordered by recency (newest first)
 - `limit` (optional): Number of items to return (max: 50, default: 25)
 - `skip` (optional): Number of items to skip for pagination
 
-### `query-feed-items`
+### `search-feed-items`
 Search and retrieve items using natural language queries.
 - `query` (required): Description of the items to search for
 - `feedId` (optional): Filter results to a specific feed
@@ -44,7 +44,11 @@ Retrieve a list of all configured RSS/news feeds with pagination support.
 
 ### From npm
 
-Install the package directly from npm:
+### Using npx (Recommended)
+No installation required! Simply use `npx` to run the latest version:
+
+### Global Installation (Optional)
+If you prefer to install globally:
 
 ```bash
 npm install -g simply-feed-mcp
@@ -73,7 +77,7 @@ npm run build
 ### Feed Configuration
 
 The feed configuration is used by the worker to fetch and update feeds.
-Create a `feeds.json` file in the project root or custom file specified by `--config_file` with your RSS feeds:
+Create a `feeds.json` file (or any custom filename) and specify its location using `--config_file` with your RSS feeds:
 
 ```json
 [

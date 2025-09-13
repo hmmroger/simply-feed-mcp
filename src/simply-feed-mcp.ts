@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerGetFeedItemDetailsTool } from "./tools/get-feed-item-details.js";
 import { VERSION } from "./version.js";
 import { registerGetRecentFeedItemsTool } from "./tools/get-recent-feed-items.js";
-import { registerQueryFeedItemsTool } from "./tools/query-feed-items.js";
+import { registerSearchFeedItemsTool } from "./tools/search-feed-items.js";
 import { registerListFeedsTool } from "./tools/list-feeds.js";
 import { registerGetFeedItemsTool } from "./tools/get-feed-items.js";
 
@@ -19,7 +19,7 @@ export const createMcpServer = async (feedManager: SimplyFeedManager): Promise<M
     registerGetFeedItemsTool,
     registerGetFeedItemDetailsTool,
     registerGetRecentFeedItemsTool,
-    registerQueryFeedItemsTool,
+    registerSearchFeedItemsTool,
     registerListFeedsTool,
   ];
 

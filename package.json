@@ -1,7 +1,16 @@
 {
   "name": "simply-feed-mcp",
   "displayName": "Simply Feed MCP Server",
-  "description": "A simple RSS feed MCP server",
+  "description": "A Model Context Protocol (MCP) server for managing and querying RSS/news feeds. This server enables AI assistants to fetch, search, and retrieve information from RSS feeds in real-time.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "rss",
+    "news-feeds",
+    "feed-reader",
+    "ai-assistant",
+    "news-aggregator"
+  ],
   "license": "MIT",
   "author": "hmmroger",
   "homepage": "https://github.com/hmmroger/simply-feed-mcp",
@@ -46,7 +55,7 @@
     "@azure/data-tables": "^13.3.1",
     "@azure/storage-blob": "^12.28.0",
     "@modelcontextprotocol/sdk": "^1.17.2",
-    "axios": "^1.11.0",
+    "axios": "^1.12.1",
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
