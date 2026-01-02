@@ -22,13 +22,18 @@ export const registerSearchFeedItemsTool = async (mcpServer: McpServer, feedMana
         const feeds = await feedManager.getFeeds();
         const feedsMap = new Map<string, string>(feeds.map((feed) => [feed.id, feed.title]));
         const items = await feedManager.queryItems(query, feedId, limit || DEFAULT_ITEMS_LIMIT, skip);
-        return textToolResult([
+        return textToolResult(
           items.length
-            ? `Found ${items.length} items matching "${query}": ${JSON.stringify(
-                items.map((item) => toFeedItemResult(item, false, feedsMap.get(item.feedId)))
-              )}`
-            : `No items found matching "${query}".`,
-        ]);
+            ? [
+                `Found ${items.length} items matching "${query}":`,
+                `${JSON.stringify(
+                  items.map((item) => toFeedItemResult(item, false, feedsMap.get(item.feedId))),
+                  null,
+                  2
+                )}`,
+              ]
+            : [`No items found matching "${query}".`]
+        );
       } catch (error) {
         return getErrorToolResult(error, "Failed to query items.");
       }

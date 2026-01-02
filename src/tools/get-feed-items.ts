@@ -25,7 +25,12 @@ export const registerGetFeedItemsTool = async (mcpServer: McpServer, feedManager
 
         const items = await feedManager.getItemsFromFeed(feedId, limit || DEFAULT_ITEMS_LIMIT, skip);
         return textToolResult([
-          `Items from feed [${feed.title}]: ${JSON.stringify(items.map((item) => toFeedItemResult(item, false, feed.title)))}`,
+          `${items.length} items from feed [${feed.title}]:`,
+          `${JSON.stringify(
+            items.map((item) => toFeedItemResult(item, false, feed.title)),
+            null,
+            2
+          )}`,
         ]);
       } catch (error) {
         return getErrorToolResult(error, "Failed to list feed items.");

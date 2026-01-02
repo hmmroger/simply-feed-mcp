@@ -30,8 +30,11 @@ export const registerGetRecentFeedItemsTool = async (mcpServer: McpServer, feedM
         const items = await feedManager.getRecentItems(recencyInMinutes, limit || DEFAULT_ITEMS_LIMIT, skip);
         return items.length
           ? textToolResult([
-              `Recent items from all feeds (last ${recencyInMinutes} minutes): ${JSON.stringify(
-                items.map((item) => toFeedItemResult(item, false, feedsMap.get(item.feedId)))
+              `There are ${items.length} recent items from all feeds (last ${recencyInMinutes} minutes):`,
+              `${JSON.stringify(
+                items.map((item) => toFeedItemResult(item, false, feedsMap.get(item.feedId))),
+                null,
+                2
               )}`,
             ])
           : textToolResult([`No items found in the last ${recencyInMinutes} minutes. Try increase the minutes.`]);

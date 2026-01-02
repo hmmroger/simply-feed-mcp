@@ -19,7 +19,7 @@ export const registerGetFeedItemDetailsTool = async (mcpServer: McpServer, feedM
         }
 
         const item = await feedManager.getItem(feedId, id);
-        return textToolResult([`Item details: ${JSON.stringify(toFeedItemResult(item, true, feed.title))}`]);
+        return textToolResult([`${JSON.stringify(toFeedItemResult(item, true, feed.title), null, 2)}`]);
       } catch (error) {
         return getErrorToolResult(error, "Failed to get item details.");
       }
