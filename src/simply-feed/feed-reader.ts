@@ -1,5 +1,4 @@
 import { Feed, FeedItem, FeedItemGuid, FeedItemTypes, RefLink } from "./simply-feed.types.js";
-import axios from "axios";
 import { isString } from "es-toolkit";
 import { XMLParser } from "fast-xml-parser";
 import { v4 as uuidv4 } from "uuid";
@@ -55,14 +54,25 @@ const XmlTags = {
 
 export async function fetchItemsAndUpdateFeed(feed: Feed): Promise<FeedItem[]> {
   try {
-    const response = await axios.get(feed.feedUrl, {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_FEED_TIMEOUT_MS);
+
+    const response = await fetch(feed.feedUrl, {
       headers: {
         Accept: ACCEPT_HEADER,
         "Accept-Encoding": ACCEPT_ENCODING_HEADER,
         "User-Agent": USER_AGENT_HEADER,
       },
-      timeout: FETCH_FEED_TIMEOUT_MS,
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.text();
 
     const parser = new XMLParser({
       ignoreAttributes: false,
@@ -72,7 +82,7 @@ export async function fetchItemsAndUpdateFeed(feed: Feed): Promise<FeedItem[]> {
       trimValues: true,
     });
 
-    const parsed = parser.parse(response.data);
+    const parsed = parser.parse(data);
     const rss = parsed.rss || parsed;
     const nsMap = getNamespacePrefixMap(rss);
     const channel: Record<string, unknown> = rss.channel || rss.feed || rss;

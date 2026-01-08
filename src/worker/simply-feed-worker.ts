@@ -1,6 +1,7 @@
 import { ConsoleLogger } from "../common/console-logger.js";
 import { SimplyFeedManager } from "../simply-feed/simply-feed-manager.js";
 import { FeedConfigProvider } from "./feed-config-provider.types.js";
+import { SimplyFeedMcpEnvs } from "../simply-feed-mcp.types.js";
 
 export const startSimplyFeedWorker = (
   configProvider: FeedConfigProvider,
@@ -18,7 +19,8 @@ export const startSimplyFeedWorker = (
           logger.info(`Adding new feed url: ${config.feedUrl}`);
           await feedManager.addFeed(config.feedUrl);
         } else {
-          const items = await feedManager.refreshFeed(feed.id);
+          const includeExistingTopics = process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_INCLUDE_EXISTING_TOPICS] === "true";
+          const items = await feedManager.refreshFeed(feed.id, includeExistingTopics);
           logger.info(`Added ${items.length} new items from feed [${feed.title}].`);
         }
       }

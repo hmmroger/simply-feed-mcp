@@ -1,12 +1,12 @@
 import { join } from "path";
 import OpenAI from "openai";
 import { v4 as uuidv4 } from "uuid";
+import { z } from "zod";
+import { zodResponseFormat } from "openai/helpers/zod";
 import { Feed, FeedItem } from "./simply-feed.types.js";
 import { AzureTableReadWriter } from "./azure-table-read-writer.js";
 import { ILogger } from "../common/logger.types.js";
 import { fetchItemsAndUpdateFeed } from "./feed-reader.js";
-import { isString } from "es-toolkit";
-import { isArray } from "es-toolkit/compat";
 import {
   QUERY_USER_PROMPT,
   SUMMARY_SYSTEM_PROMPT,
@@ -27,14 +27,18 @@ const FEED_PARTITION = "default";
 const FEEDS_CACHE_MAX_AGE_IN_MINUTES = 5;
 const DEFAULT_RETENTION_DAYS = 5;
 
-interface SummaryResult {
-  summary: string;
-  topics: string[];
-}
+const SummaryResultSchema = z.object({
+  summary: z.string().describe("A concise summary of the content"),
+  topics: z.array(z.string()).describe("Array of relevant topics extracted from the content"),
+});
 
-interface TopicsResult {
-  topics: string[];
-}
+type SummaryResult = z.infer<typeof SummaryResultSchema>;
+
+const TopicsResultSchema = z.object({
+  topics: z.array(z.string()).describe("Array of relevant topics"),
+});
+
+type TopicsResult = z.infer<typeof TopicsResultSchema>;
 
 export class SimplyFeedManager {
   private llmApiKey: string;
@@ -280,7 +284,7 @@ export class SimplyFeedManager {
       .slice(0, limit || undefined);
   }
 
-  public async refreshFeed(id: string): Promise<FeedItem[]> {
+  public async refreshFeed(id: string, includeExistingTopics: boolean = false): Promise<FeedItem[]> {
     const feed = await this.getFeed(id);
     if (!feed) {
       this.logger.error(`Failed to find feed ID [${id}].`);
@@ -303,20 +307,26 @@ export class SimplyFeedManager {
     });
     const retryItems = currentFeedItems.filter((existingItem) => !existingItem.summary);
 
-    const topics = currentFeedItems.reduce((topics, item) => {
-      item.topics?.forEach((topic) => topics.add(topic));
-      return topics;
-    }, new Set<string>());
+    const topics = includeExistingTopics
+      ? currentFeedItems.reduce((topics, item) => {
+          item.topics?.forEach((topic) => topics.add(topic));
+          return topics;
+        }, new Set<string>())
+      : new Set<string>();
 
     const processingItems = newItems.concat(retryItems);
     if (processingItems.length > 0) {
       for (const processItem of processingItems) {
-        const text = processItem.title.concat("\n", processItem.content || processItem.description);
-        const res = await this.generateSummary(text, topics);
-        if (res) {
-          processItem.summary = res.summary;
-          processItem.topics = res.topics;
-          res.topics.forEach((topic) => topics.add(topic));
+        try {
+          const text = processItem.title.concat("\n", processItem.content || processItem.description);
+          const res = await this.generateSummary(text, topics);
+          if (res) {
+            processItem.summary = res.summary;
+            processItem.topics = res.topics;
+            res.topics.forEach((topic) => topics.add(topic));
+          }
+        } catch (error) {
+          this.logger.error(`Failed to generate summary for item [${processItem.id}]: ${(error as Error).message}`);
         }
       }
 
@@ -357,8 +367,8 @@ export class SimplyFeedManager {
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
-          { role: "assistant", content: "{" },
         ],
+        response_format: zodResponseFormat(SummaryResultSchema, "summary_result"),
       });
 
       const choice = response.choices?.at(0);
@@ -370,13 +380,15 @@ export class SimplyFeedManager {
         throw new Error("Empty content");
       }
 
-      const parsed = JSON.parse(`{${choice.message.content}`) as SummaryResult;
-      if (!parsed.summary || !isString(parsed.summary) || !parsed.topics || !isArray(parsed.topics)) {
-        throw new Error(`Invalid response: ${choice.message.content}.`);
+      const parsed = JSON.parse(choice.message.content);
+      const result = SummaryResultSchema.safeParse(parsed);
+
+      if (!result.success) {
+        throw new Error(`Schema validation failed: ${result.error.message}`);
       }
 
-      parsed.topics = parsed.topics.map((topic) => topic.toLowerCase());
-      return parsed;
+      result.data.topics = result.data.topics.map((topic) => topic.toLowerCase());
+      return result.data;
     } catch (error) {
       this.logger.error(`Failed to summarize text. ${(error as Error).message}`);
     }
@@ -398,8 +410,8 @@ export class SimplyFeedManager {
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
-          { role: "assistant", content: "{" },
         ],
+        response_format: zodResponseFormat(TopicsResultSchema, "topics_result"),
       });
 
       const choice = response.choices?.at(0);
@@ -411,13 +423,15 @@ export class SimplyFeedManager {
         throw new Error("Empty content");
       }
 
-      const parsed = JSON.parse(`{${choice.message.content}`) as TopicsResult;
-      if (!parsed.topics || !isArray(parsed.topics)) {
-        throw new Error(`Invalid response: ${choice.message.content}.`);
+      const parsed = JSON.parse(choice.message.content);
+      const result = TopicsResultSchema.safeParse(parsed);
+
+      if (!result.success) {
+        throw new Error(`Schema validation failed: ${result.error.message}`);
       }
 
-      parsed.topics = parsed.topics.map((topic) => topic.toLowerCase());
-      return parsed;
+      result.data.topics = result.data.topics.map((topic) => topic.toLowerCase());
+      return result.data;
     } catch (error) {
       this.logger.error(`Failed to summarize text. ${(error as Error).message}`);
     }
