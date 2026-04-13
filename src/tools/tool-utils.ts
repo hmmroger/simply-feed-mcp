@@ -1,11 +1,21 @@
-import { Feed, FeedItem } from "../simply-feed/simply-feed.types.js";
+import { z } from "zod";
+import { Feed, FeedItem, RefLink } from "../simply-feed/simply-feed.types.js";
 
 // keep this low since a post may have lots of links
 const MAX_MENTIONED_LINKS = 2;
 
-export const MAX_ITEMS_LIMIT = 50;
-export const DEFAULT_ITEMS_LIMIT = 25;
-export const DEFAULT_FEEDS_LIMIT = 10;
+export const MAX_ITEMS_LIMIT = 100;
+export const DEFAULT_ITEMS_LIMIT = 50;
+export const DEFAULT_FEEDS_LIMIT = 50;
+
+export const timeZoneSchema = z
+  .string()
+  .optional()
+  .describe("IANA timezone string for formatting dates (e.g. 'America/New_York', 'Europe/London'). Defaults to UTC.");
+
+export const formatSkipNotice = (skip: number | undefined): string => {
+  return skip ? ` (skipped first ${skip})` : "";
+};
 
 /**
  * Creates a tool result object with text content.
@@ -40,56 +50,85 @@ export const getErrorToolResult = (error: unknown, fallbackMessage: string) => {
   return textToolResult([errorMessage], true);
 };
 
-/**
- * Converts a FeedItem to a result object for tool responses, with optional detailed information.
- *
- * @param feedItem - The feed item to convert to result format
- * @param isDetails - Whether to include detailed fields (content, subtitle, categories, imageUrl)
- * @param feedName - Optional feed name to include in the result
- * @param timeZone - Optional timezone for formatting the published time (defaults to UTC)
- * @returns Result object with basic fields (id, feedId, feedName, summary, topics, link, author, mentionedLinks, publishedTime)
- *          and additional detailed fields when isDetails is true
- */
-export const toFeedItemResult = (feedItem: FeedItem, isDetails: boolean, feedName?: string, timeZone?: string) => {
-  const publishedDateTime = new Date(feedItem.publishedTime);
-  const publishedTime = timeZone
+const formatPublishedTime = (publishedTime: number, timeZone?: string): string => {
+  const publishedDateTime = new Date(publishedTime);
+  return timeZone
     ? new Intl.DateTimeFormat(undefined, { timeZone, dateStyle: "medium", timeStyle: "medium" }).format(publishedDateTime)
     : publishedDateTime.toUTCString();
-  const result = {
-    id: feedItem.id,
-    feedId: feedItem.feedId,
-    feedName,
-    title: feedItem.title,
-    summary: feedItem.summary || feedItem.description,
-    topics: feedItem.topics,
-    link: feedItem.link,
-    author: feedItem.author,
-    mentionedLinks: feedItem.refLinks?.slice(0, MAX_MENTIONED_LINKS),
-    publishedTime,
-  };
+};
 
-  return isDetails
-    ? {
-        ...result,
-        mentionedLinks: undefined,
-        content: feedItem.content,
-        subtitle: feedItem.subtitle,
-        categories: feedItem.categories,
-        imageUrl: feedItem.imageUrl,
-      }
-    : result;
+const formatRefLinks = (refLinks: RefLink[]): string => {
+  return refLinks.map((link) => (link.title ? `${link.title} (${link.url})` : link.url)).join(", ");
 };
 
 /**
- * Converts a Feed to a simplified result object for tool responses.
+ * Formats a FeedItem as a natural language string for tool responses.
  *
- * @param feed - The feed object to convert to result format
- * @returns Result object containing feedId, name, and latestItemPublishedTime as a string
+ * @param feedItem - The feed item to format
+ * @param isDetails - Whether to include full content and detailed fields
+ * @param feedName - Optional feed name to include
+ * @param timeZone - Optional timezone for formatting the published time (defaults to UTC)
+ * @returns Formatted natural language string
  */
-export const toFeedResult = (feed: Feed) => {
-  return {
-    feedId: feed.id,
-    name: feed.title,
-    latestItemPublishedTime: new Date(feed.latestItemPublishedTime).toString(),
-  };
+export const formatFeedItem = (feedItem: FeedItem, isDetails: boolean, feedName?: string, timeZone?: string): string => {
+  const publishedTime = formatPublishedTime(feedItem.publishedTime, timeZone);
+  const lines: string[] = [];
+
+  lines.push(`Title: ${feedItem.title}`);
+  lines.push(`ID: ${feedItem.id} | Feed ID: ${feedItem.feedId}`);
+  if (feedName) {
+    lines.push(`Feed: ${feedName}`);
+  }
+  if (feedItem.author) {
+    lines.push(`Author: ${feedItem.author}`);
+  }
+  lines.push(`Published: ${publishedTime}`);
+
+  if (isDetails) {
+    if (feedItem.subtitle) {
+      lines.push(`Subtitle: ${feedItem.subtitle}`);
+    }
+    if (feedItem.categories?.length) {
+      lines.push(`Categories: ${feedItem.categories.join(", ")}`);
+    }
+    if (feedItem.imageUrl) {
+      lines.push(`Image: ${feedItem.imageUrl}`);
+    }
+  }
+
+  lines.push(`Link: ${feedItem.link}`);
+
+  if (feedItem.topics?.length) {
+    lines.push(`Topics: ${feedItem.topics.join(", ")}`);
+  }
+
+  const summary = feedItem.summary || feedItem.description;
+  if (summary) {
+    lines.push(`Summary: ${summary}`);
+  }
+
+  if (!isDetails) {
+    const mentionedLinks = feedItem.refLinks?.slice(0, MAX_MENTIONED_LINKS);
+    if (mentionedLinks?.length) {
+      lines.push(`Mentioned links: ${formatRefLinks(mentionedLinks)}`);
+    }
+  }
+
+  if (isDetails && feedItem.content) {
+    lines.push("");
+    lines.push(`Content:\n${feedItem.content}`);
+  }
+
+  return lines.join("\n");
+};
+
+/**
+ * Formats a Feed as a natural language string for tool responses.
+ *
+ * @param feed - The feed object to format
+ * @returns Formatted natural language string
+ */
+export const formatFeed = (feed: Feed, timeZone?: string): string => {
+  const latestPublished = formatPublishedTime(feed.latestItemPublishedTime, timeZone);
+  return `- ${feed.title} (ID: ${feed.id}) - Latest item published: ${latestPublished}`;
 };

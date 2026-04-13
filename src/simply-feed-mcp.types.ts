@@ -1,3 +1,7 @@
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import type { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+
 export const SimplyFeedMcpEnvs = {
   SIMPLY_FEED_CONFIG_BLOB_NAME: "SIMPLY_FEED_CONFIG_BLOB_NAME",
   SIMPLY_FEED_CONFIG_FILE_NAME: "SIMPLY_FEED_CONFIG_FILE_NAME",
@@ -9,3 +13,11 @@ export const SimplyFeedMcpEnvs = {
   SIMPLY_FEED_ITEMS_RETENTION_DAYS: "SIMPLY_FEED_ITEMS_RETENTION_DAYS",
   SIMPLY_FEED_INCLUDE_EXISTING_TOPICS: "SIMPLY_FEED_INCLUDE_EXISTING_TOPICS",
 } as const;
+
+export interface McpToolConfig<InputArgs extends ZodRawShapeCompat> {
+  name: string;
+  description: string;
+  inputSchema?: InputArgs;
+  annotations?: ToolAnnotations;
+  handler: ToolCallback<InputArgs>;
+}
