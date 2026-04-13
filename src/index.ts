@@ -12,7 +12,7 @@ import { StaticFeedConfigProvider } from "./worker/static-feed-config-provider.j
 import { BlobFeedConfigProvider } from "./worker/blob-feed-config-provider.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { FeedConfigProvider } from "./worker/feed-config-provider.types.js";
-import { createMcpServer } from "./simply-feed-mcp.js";
+import { createSimplyFeedMcpServer } from "./simply-feed-mcp.js";
 import { SimplyFeedMcpEnvs } from "./simply-feed-mcp.types.js";
 import { VERSION } from "./version.js";
 
@@ -80,8 +80,8 @@ const main = async () => {
   }
 
   const feedManager = new SimplyFeedManager(new ConsoleLogger("SimplyFeedManager", true), dataFolder);
+  const server = createSimplyFeedMcpServer(feedManager);
   const transport = new StdioServerTransport();
-  const server = await createMcpServer(feedManager);
   await server.connect(transport);
   console.error("Simply Feed MCP Server running on stdio.");
 };
