@@ -1,4 +1,4 @@
-name: Create release on tag
+name: Release and publish on tag
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 permissions: {}
 
 jobs:
-  build:
+  release:
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -22,3 +22,23 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           generate_release_notes: true
+
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Publish to npm
+        run: npm publish --provenance
