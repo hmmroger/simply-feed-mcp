@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { Feed, FeedItem, RefLink } from "../simply-feed/simply-feed.types.js";
 
+export interface PaginationResult<T> {
+  items: T[];
+  totalCount: number;
+  effectiveSkip: number;
+  hasMore: boolean;
+}
+
 // keep this low since a post may have lots of links
 const MAX_MENTIONED_LINKS = 2;
 
@@ -13,8 +20,25 @@ export const timeZoneSchema = z
   .optional()
   .describe("IANA timezone string for formatting dates (e.g. 'America/New_York', 'Europe/London'). Defaults to UTC.");
 
-export const formatSkipNotice = (skip: number | undefined): string => {
-  return skip ? ` (skipped first ${skip})` : "";
+export const applyPagination = <T>(allItems: T[], limit: number, skip?: number): PaginationResult<T> => {
+  const effectiveSkip = skip || 0;
+  const items = allItems.slice(effectiveSkip, effectiveSkip + limit);
+  return {
+    items,
+    totalCount: allItems.length,
+    effectiveSkip,
+    hasMore: effectiveSkip + items.length < allItems.length,
+  };
+};
+
+export const formatPaginationHeader = (description: string, pagination: PaginationResult<unknown>): string[] => {
+  const { items, totalCount, effectiveSkip, hasMore } = pagination;
+  const skipNotice = effectiveSkip > 0 ? `, skipped first ${effectiveSkip}` : "";
+  const lines = [`${description} - showing ${items.length} of ${totalCount} total${skipNotice}.`];
+  if (hasMore) {
+    lines.push(`More available - use skip=${effectiveSkip + items.length} to see next page.`);
+  }
+  return lines;
 };
 
 /**

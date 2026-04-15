@@ -2,9 +2,10 @@ import { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SimplyFeedManager } from "../simply-feed/simply-feed-manager.js";
 import {
+  applyPagination,
   DEFAULT_ITEMS_LIMIT,
   formatFeedItem,
-  formatSkipNotice,
+  formatPaginationHeader,
   getErrorToolResult,
   MAX_ITEMS_LIMIT,
   textToolResult,
@@ -37,16 +38,14 @@ export const getRecentFeedItemsToolConfig = (feedManager: SimplyFeedManager) => 
       recencyInMinutes = recencyInMinutes || DEFAULT_RECENCY_IN_MINUTES;
       const feeds = await feedManager.getFeeds();
       const feedsMap = new Map<string, string>(feeds.map((feed) => [feed.id, feed.title]));
-      const items = await feedManager.getRecentItems(recencyInMinutes, limit || DEFAULT_ITEMS_LIMIT, skip);
-      if (!items.length) {
+      const allItems = await feedManager.getRecentItems(recencyInMinutes);
+      if (!allItems.length) {
         return textToolResult([`No items found in the last ${recencyInMinutes} minutes. Try increase the minutes.`]);
       }
-      const formattedItems = items.map((item) => formatFeedItem(item, false, feedsMap.get(item.feedId), timeZone));
-      return textToolResult([
-        `There are ${items.length} recent items from all feeds (last ${recencyInMinutes} minutes)${formatSkipNotice(skip)}:`,
-        "",
-        ...formattedItems.flatMap((item) => [item, "---"]),
-      ]);
+      const pagination = applyPagination(allItems, limit || DEFAULT_ITEMS_LIMIT, skip);
+      const formattedItems = pagination.items.map((item) => formatFeedItem(item, false, feedsMap.get(item.feedId), timeZone));
+      const header = formatPaginationHeader(`Recent items from all feeds (last ${recencyInMinutes} minutes)`, pagination);
+      return textToolResult([...header, "", ...formattedItems.flatMap((item) => [item, "---"])]);
     } catch (error) {
       return getErrorToolResult(error, "Failed to query recent items.");
     }

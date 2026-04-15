@@ -2,9 +2,10 @@ import { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SimplyFeedManager } from "../simply-feed/simply-feed-manager.js";
 import {
+  applyPagination,
   DEFAULT_ITEMS_LIMIT,
   formatFeedItem,
-  formatSkipNotice,
+  formatPaginationHeader,
   getErrorToolResult,
   MAX_ITEMS_LIMIT,
   textToolResult,
@@ -31,16 +32,14 @@ export const searchFeedItemsToolConfig = (feedManager: SimplyFeedManager) => {
     try {
       const feeds = await feedManager.getFeeds();
       const feedsMap = new Map<string, string>(feeds.map((feed) => [feed.id, feed.title]));
-      const items = await feedManager.queryItems(query, feedId, limit || DEFAULT_ITEMS_LIMIT, skip);
-      if (!items.length) {
+      const allItems = await feedManager.queryItems(query, feedId);
+      if (!allItems.length) {
         return textToolResult([`No items found matching "${query}".`]);
       }
-      const formattedItems = items.map((item) => formatFeedItem(item, false, feedsMap.get(item.feedId), timeZone));
-      return textToolResult([
-        `Found ${items.length} items matching "${query}"${formatSkipNotice(skip)}:`,
-        "",
-        ...formattedItems.flatMap((item) => [item, "---"]),
-      ]);
+      const pagination = applyPagination(allItems, limit || DEFAULT_ITEMS_LIMIT, skip);
+      const formattedItems = pagination.items.map((item) => formatFeedItem(item, false, feedsMap.get(item.feedId), timeZone));
+      const header = formatPaginationHeader(`Items matching "${query}"`, pagination);
+      return textToolResult([...header, "", ...formattedItems.flatMap((item) => [item, "---"])]);
     } catch (error) {
       return getErrorToolResult(error, "Failed to query items.");
     }

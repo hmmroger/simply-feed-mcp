@@ -2,9 +2,10 @@ import { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SimplyFeedManager } from "../simply-feed/simply-feed-manager.js";
 import {
+  applyPagination,
   DEFAULT_ITEMS_LIMIT,
   formatFeedItem,
-  formatSkipNotice,
+  formatPaginationHeader,
   getErrorToolResult,
   MAX_ITEMS_LIMIT,
   textToolResult,
@@ -30,16 +31,14 @@ export const getFeedItemsToolConfig = (feedManager: SimplyFeedManager) => {
     try {
       const feed = await feedManager.getFeed(feedId);
       if (!feed) {
-        throw new Error("Ensure correct feedID is used.");
+        throw new Error("Ensure correct feed ID is used.");
       }
 
-      const items = await feedManager.getItemsFromFeed(feedId, limit || DEFAULT_ITEMS_LIMIT, skip);
-      const formattedItems = items.map((item) => formatFeedItem(item, false, feed.title, timeZone));
-      return textToolResult([
-        `${items.length} items from feed [${feed.title}]${formatSkipNotice(skip)}:`,
-        "",
-        ...formattedItems.flatMap((item) => [item, "---"]),
-      ]);
+      const allItems = await feedManager.getItemsFromFeed(feedId);
+      const pagination = applyPagination(allItems, limit || DEFAULT_ITEMS_LIMIT, skip);
+      const formattedItems = pagination.items.map((item) => formatFeedItem(item, false, feed.title, timeZone));
+      const header = formatPaginationHeader(`Items from feed [${feed.title}]`, pagination);
+      return textToolResult([...header, "", ...formattedItems.flatMap((item) => [item, "---"])]);
     } catch (error) {
       return getErrorToolResult(error, "Failed to list feed items.");
     }

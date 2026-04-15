@@ -2,9 +2,10 @@ import { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SimplyFeedManager } from "../simply-feed/simply-feed-manager.js";
 import {
+  applyPagination,
   DEFAULT_FEEDS_LIMIT,
   formatFeed,
-  formatSkipNotice,
+  formatPaginationHeader,
   getErrorToolResult,
   MAX_ITEMS_LIMIT,
   textToolResult,
@@ -27,9 +28,11 @@ export const listFeedsToolConfig = (feedManager: SimplyFeedManager) => {
 
   const handler: ToolCallback<typeof inputSchema> = async ({ limit, skip, timeZone }) => {
     try {
-      const feeds = await feedManager.getFeeds(limit || DEFAULT_FEEDS_LIMIT, skip);
-      const formattedFeeds = feeds.map((feed) => formatFeed(feed, timeZone));
-      return textToolResult([`Available feeds (${feeds.length})${formatSkipNotice(skip)}:`, "", ...formattedFeeds]);
+      const allFeeds = await feedManager.getFeeds();
+      const pagination = applyPagination(allFeeds, limit || DEFAULT_FEEDS_LIMIT, skip);
+      const formattedFeeds = pagination.items.map((feed) => formatFeed(feed, timeZone));
+      const header = formatPaginationHeader("Available feeds", pagination);
+      return textToolResult([...header, "", ...formattedFeeds]);
     } catch (error) {
       return getErrorToolResult(error, "Failed to list feeds.");
     }
