@@ -18,7 +18,7 @@
     "type": "git",
     "url": "https://github.com/hmmroger/simply-feed-mcp.git"
   },
-  "version": "0.0.6",
+  "version": "0.0.7",
   "main": "./dist/api.js",
   "types": "./dist/api.d.ts",
   "exports": {
