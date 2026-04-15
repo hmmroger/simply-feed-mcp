@@ -1,22 +1,16 @@
 import { BlobServiceClient } from "@azure/storage-blob";
 import { FeedConfig, FeedConfigProvider } from "./feed-config-provider.types.js";
-import { SimplyFeedMcpEnvs } from "../simply-feed-mcp.types.js";
 
 export class BlobFeedConfigProvider implements FeedConfigProvider {
   private cachedConfigs?: FeedConfig[];
   private blobServiceClient: BlobServiceClient;
 
-  constructor(private readonly containerName: string, private readonly blobName: string, connectionString?: string) {
-    // Use the same connection string pattern as other Azure services in the project
-    const storageConnectionString = connectionString || process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_STORAGE_CONNECTION_STRING];
-
-    if (!storageConnectionString) {
-      throw new Error(
-        "Missing Azure Storage connection string. Set SIMPLY_FEED_STORAGE_CONNECTION_STRING environment variable or provide connectionString parameter."
-      );
-    }
-
-    this.blobServiceClient = BlobServiceClient.fromConnectionString(storageConnectionString);
+  constructor(
+    private readonly containerName: string,
+    private readonly blobName: string,
+    connectionString: string
+  ) {
+    this.blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
   }
 
   public async getConfigs(): Promise<FeedConfig[]> {

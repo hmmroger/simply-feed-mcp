@@ -7,7 +7,7 @@ import yargs from "yargs/yargs";
 import { hideBin } from "yargs/helpers";
 import { startSimplyFeedWorker } from "./worker/simply-feed-worker.js";
 import { ConsoleLogger } from "./common/console-logger.js";
-import { SimplyFeedManager } from "./simply-feed/simply-feed-manager.js";
+import { SimplyFeedManager, SimplyFeedManagerOptions } from "./simply-feed/simply-feed-manager.js";
 import { StaticFeedConfigProvider } from "./worker/static-feed-config-provider.js";
 import { BlobFeedConfigProvider } from "./worker/blob-feed-config-provider.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -17,7 +17,6 @@ import { SimplyFeedMcpEnvs } from "./simply-feed-mcp.types.js";
 import { VERSION } from "./version.js";
 
 const DEFAULT_FEEDS_CONFIG_FILE_NAME = "feeds.json";
-const DEFAULT_REFRESH_MINUTES = 15;
 
 config({ quiet: true });
 const __filename = fileURLToPath(import.meta.url);
@@ -40,6 +39,11 @@ const main = async () => {
       description: "Refresh interval for worker in seconds.",
       implies: ["worker"],
     })
+    .option("include_existing_topics", {
+      type: "boolean",
+      description: "Include existing topics when refreshing feeds.",
+      implies: ["worker"],
+    })
     .option("config_file", {
       type: "string",
       description: "Load feeds config from file path.",
@@ -53,6 +57,21 @@ const main = async () => {
     .parseSync();
 
   const dataFolder = process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_STORAGE_FILE_FOLDER] || join(__dirname, "..");
+  const llmApiKey = process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_LLM_API_KEY];
+  if (!llmApiKey) {
+    throw new Error(`Missing ${SimplyFeedMcpEnvs.SIMPLY_FEED_LLM_API_KEY} environment variable.`);
+  }
+
+  const retentionDaysEnv = process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_ITEMS_RETENTION_DAYS];
+  const feedManagerOptions: SimplyFeedManagerOptions = {
+    dataFolder,
+    storageConnectionString: process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_STORAGE_CONNECTION_STRING],
+    llmApiKey,
+    llmBaseUrl: process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_LLM_BASE_URL],
+    llmModel: process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_LLM_MODEL],
+    retentionDays: retentionDaysEnv !== undefined ? Number(retentionDaysEnv) : undefined,
+  };
+
   if (argv.worker) {
     let feedConfigProvider: FeedConfigProvider;
     const configBlobName = argv.config_blob_name || process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_CONFIG_BLOB_NAME];
@@ -65,8 +84,11 @@ const main = async () => {
 
       const containerName = blobParts[0];
       const blobName = blobParts.slice(1).join("/");
+      if (!feedManagerOptions.storageConnectionString) {
+        throw new Error("Missing Azure Storage connection string. Set SIMPLY_FEED_STORAGE_CONNECTION_STRING environment variable.");
+      }
 
-      feedConfigProvider = new BlobFeedConfigProvider(containerName, blobName);
+      feedConfigProvider = new BlobFeedConfigProvider(containerName, blobName, feedManagerOptions.storageConnectionString);
     } else {
       const configFile = argv.config_file
         ? argv.config_file
@@ -74,12 +96,18 @@ const main = async () => {
       feedConfigProvider = new StaticFeedConfigProvider(configFile);
     }
 
-    const feedManager = new SimplyFeedManager(new ConsoleLogger("SimplyFeedManager"), dataFolder);
-    const refreshInterval = argv.refresh_interval && argv.refresh_interval > 10 ? argv.refresh_interval : DEFAULT_REFRESH_MINUTES * 60;
-    return await startSimplyFeedWorker(feedConfigProvider, feedManager, refreshInterval, argv.run_once);
+    const feedManager = new SimplyFeedManager(new ConsoleLogger("SimplyFeedManager"), feedManagerOptions);
+    return await startSimplyFeedWorker(feedConfigProvider, feedManager, {
+      intervalInSeconds: argv.refresh_interval,
+      runOnce: argv.run_once,
+      includeExistingTopics:
+        argv.include_existing_topics !== undefined
+          ? argv.include_existing_topics
+          : process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_INCLUDE_EXISTING_TOPICS] === "true",
+    });
   }
 
-  const feedManager = new SimplyFeedManager(new ConsoleLogger("SimplyFeedManager", true), dataFolder);
+  const feedManager = new SimplyFeedManager(new ConsoleLogger("SimplyFeedManager", true), feedManagerOptions);
   const server = createSimplyFeedMcpServer(feedManager);
   const transport = new StdioServerTransport();
   await server.connect(transport);

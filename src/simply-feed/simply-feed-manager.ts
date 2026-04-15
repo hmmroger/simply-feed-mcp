@@ -14,7 +14,6 @@ import {
   SUMMARY_SYSTEM_PROMPT_WITH_TOPICS,
   SUMMARY_USER_PROMPT,
 } from "./system-prompts.js";
-import { SimplyFeedMcpEnvs } from "../simply-feed-mcp.types.js";
 import { TableReadWriter } from "./table-read-writer.types.js";
 import { FileTableReadWriter } from "./file-table-read-writer.js";
 
@@ -26,6 +25,7 @@ const FEED_ITEMS_TABLE_NAME = "feeditems";
 const FEED_PARTITION = "default";
 const FEEDS_CACHE_MAX_AGE_IN_MINUTES = 5;
 const DEFAULT_RETENTION_DAYS = 5;
+const DEFAULT_PREVIEW_FEED_ITEMS = 10;
 
 const SummaryResultSchema = z.object({
   summary: z.string().describe("A concise summary of the content"),
@@ -40,41 +40,49 @@ const TopicsResultSchema = z.object({
 
 type TopicsResult = z.infer<typeof TopicsResultSchema>;
 
+export interface SimplyFeedManagerOptions {
+  dataFolder?: string;
+  storageConnectionString?: string;
+  llmApiKey: string;
+  llmBaseUrl?: string;
+  llmModel?: string;
+  retentionDays?: number;
+}
+
 export class SimplyFeedManager {
   private llmApiKey: string;
   private llmApiBaseUrl: string;
   private llmModel: string;
+  private retentionDays: number;
   private feedReadWriter: TableReadWriter;
   private feedItemsReadWriter: TableReadWriter;
   private cachedFeeds: Map<string, Feed>;
   private cachedItems: Map<string, FeedItem[]>;
   private cachedFeedsTimestamp: number;
 
-  constructor(private readonly logger: ILogger, dataFolder?: string) {
-    const apiKey = process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_LLM_API_KEY];
-    if (!apiKey) {
-      throw new Error(`Missing ${SimplyFeedMcpEnvs.SIMPLY_FEED_LLM_API_KEY}.`);
-    }
-
-    const connectionString = process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_STORAGE_CONNECTION_STRING];
-    if (connectionString) {
-      this.feedReadWriter = new AzureTableReadWriter(logger, connectionString, FEED_TABLE_NAME);
-      this.feedItemsReadWriter = new AzureTableReadWriter(logger, connectionString, FEED_ITEMS_TABLE_NAME);
+  constructor(
+    private readonly logger: ILogger,
+    options: SimplyFeedManagerOptions
+  ) {
+    if (options.storageConnectionString) {
+      this.feedReadWriter = new AzureTableReadWriter(logger, options.storageConnectionString, FEED_TABLE_NAME);
+      this.feedItemsReadWriter = new AzureTableReadWriter(logger, options.storageConnectionString, FEED_ITEMS_TABLE_NAME);
     } else {
-      if (!dataFolder) {
+      if (!options.dataFolder) {
         throw new Error(`Missing data folder.`);
       }
 
-      const feedTableFile = join(dataFolder, `${FEED_TABLE_NAME}.table.json`);
+      const feedTableFile = join(options.dataFolder, `${FEED_TABLE_NAME}.table.json`);
       this.feedReadWriter = new FileTableReadWriter(logger, feedTableFile);
-      const itemsTableFile = join(dataFolder, `${FEED_ITEMS_TABLE_NAME}.table.json`);
+      const itemsTableFile = join(options.dataFolder, `${FEED_ITEMS_TABLE_NAME}.table.json`);
       this.feedItemsReadWriter = new FileTableReadWriter(logger, itemsTableFile);
     }
 
-    this.llmApiKey = apiKey;
-    this.llmApiBaseUrl = process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_LLM_BASE_URL] || DEFAULT_LLM_BASE_URL;
-    this.llmModel = process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_LLM_MODEL] || DEFAULT_LLM_MODEL;
+    this.llmApiKey = options.llmApiKey;
+    this.llmApiBaseUrl = options.llmBaseUrl || DEFAULT_LLM_BASE_URL;
+    this.llmModel = options.llmModel || DEFAULT_LLM_MODEL;
 
+    this.retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
     this.cachedFeeds = new Map();
     this.cachedItems = new Map();
     this.cachedFeedsTimestamp = 0;
@@ -87,7 +95,7 @@ export class SimplyFeedManager {
       return feed;
     }
 
-    const newFeed = await this.createFeed(feedUrl);
+    const newFeed = this.createFeed(feedUrl);
     this.cachedFeeds.set(newFeed.id, newFeed);
     await this.refreshFeed(newFeed.id);
     return newFeed;
@@ -284,6 +292,20 @@ export class SimplyFeedManager {
       .slice(0, limit || undefined);
   }
 
+  public async previewFeedFromUrl(feedUrl: string, limit?: number): Promise<{ feed: Feed; feedItems: FeedItem[] }> {
+    const feed = await this.getFeedFromUrl(feedUrl);
+    if (feed) {
+      const feedItems = await this.getItemsFromFeed(feed.id, limit ?? DEFAULT_PREVIEW_FEED_ITEMS);
+      return { feed, feedItems };
+    }
+
+    const tempFeed = this.createFeed(feedUrl);
+    const allItems = await fetchItemsAndUpdateFeed(tempFeed);
+    const feedItems = allItems.slice(0, limit ?? DEFAULT_PREVIEW_FEED_ITEMS);
+
+    return { feed: tempFeed, feedItems };
+  }
+
   public async refreshFeed(id: string, includeExistingTopics: boolean = false): Promise<FeedItem[]> {
     const feed = await this.getFeed(id);
     if (!feed) {
@@ -337,9 +359,8 @@ export class SimplyFeedManager {
       this.logger.info(`${processingItems.length} new items processed for feed [${feed.title}]`);
     }
 
-    const retentionDays = process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_ITEMS_RETENTION_DAYS] || DEFAULT_RETENTION_DAYS;
-    if (retentionDays) {
-      const expiredTime = Date.now() - Number(retentionDays) * 24 * 60 * 60 * 1000;
+    if (this.retentionDays > 0) {
+      const expiredTime = Date.now() - this.retentionDays * 24 * 60 * 60 * 1000;
       const keysToDelete = currentFeedItems.filter((item) => item.publishedTime <= expiredTime).map((item) => item.id);
       await this.feedItemsReadWriter.deleteObjects(keysToDelete, feed.id);
     }
@@ -399,14 +420,14 @@ export class SimplyFeedManager {
   private async determineTopics(text: string): Promise<TopicsResult | undefined> {
     const openai = new OpenAI({
       apiKey: this.llmApiKey,
-      baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      baseURL: this.llmApiBaseUrl,
     });
 
     try {
       const systemPrompt = SUMMARY_SYSTEM_PROMPT.join("\n");
       const userPrompt = QUERY_USER_PROMPT.join("\n").replace("{text}", text);
       const response = await openai.chat.completions.create({
-        model: "gemini-2.5-flash-lite",
+        model: this.llmModel,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -439,7 +460,7 @@ export class SimplyFeedManager {
     return undefined;
   }
 
-  private async createFeed(feedUrl: string): Promise<Feed> {
+  private createFeed(feedUrl: string): Feed {
     return {
       id: uuidv4(),
       title: "Untitled Feed",

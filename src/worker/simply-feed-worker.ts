@@ -1,13 +1,19 @@
 import { ConsoleLogger } from "../common/console-logger.js";
 import { SimplyFeedManager } from "../simply-feed/simply-feed-manager.js";
 import { FeedConfigProvider } from "./feed-config-provider.types.js";
-import { SimplyFeedMcpEnvs } from "../simply-feed-mcp.types.js";
+
+const DEFAULT_REFRESH_MINUTES = 15;
+
+export interface SimplyFeedWorkerOptions {
+  intervalInSeconds?: number;
+  runOnce?: boolean;
+  includeExistingTopics?: boolean;
+}
 
 export const startSimplyFeedWorker = (
   configProvider: FeedConfigProvider,
   feedManager: SimplyFeedManager,
-  intervalInSeconds: number,
-  runOnce: boolean = false
+  options?: SimplyFeedWorkerOptions
 ): Promise<void> => {
   const logger = new ConsoleLogger("SimplyFeedWorker");
   const processor = async () => {
@@ -19,8 +25,7 @@ export const startSimplyFeedWorker = (
           logger.info(`Adding new feed url: ${config.feedUrl}`);
           await feedManager.addFeed(config.feedUrl);
         } else {
-          const includeExistingTopics = process.env[SimplyFeedMcpEnvs.SIMPLY_FEED_INCLUDE_EXISTING_TOPICS] === "true";
-          const items = await feedManager.refreshFeed(feed.id, includeExistingTopics);
+          const items = await feedManager.refreshFeed(feed.id, options?.includeExistingTopics);
           logger.info(`Added ${items.length} new items from feed [${feed.title}].`);
         }
       }
@@ -32,14 +37,17 @@ export const startSimplyFeedWorker = (
   return new Promise<void>((resolve) => {
     processor();
 
-    if (runOnce) {
+    if (options?.runOnce) {
       resolve();
       return;
     }
 
-    const intervalId = setInterval(() => {
-      processor();
-    }, intervalInSeconds * 1000);
+    const intervalId = setInterval(
+      () => {
+        processor();
+      },
+      (options?.intervalInSeconds ?? DEFAULT_REFRESH_MINUTES * 60) * 1000
+    );
 
     const cleanup = () => {
       clearInterval(intervalId);
