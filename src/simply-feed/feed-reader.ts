@@ -1,16 +1,18 @@
 import { Feed, FeedItem, FeedItemGuid, FeedItemTypes, RefLink } from "./simply-feed.types.js";
 import { isString } from "es-toolkit";
 import { XMLParser } from "fast-xml-parser";
-import { v4 as uuidv4 } from "uuid";
+import { generateId } from "../common/id-utils.js";
 import { NodeHtmlMarkdown } from "node-html-markdown";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { visit } from "unist-util-visit";
 import { isArray } from "es-toolkit/compat";
+import { JSDOM } from "jsdom";
 
 const USER_AGENT_HEADER = "Mozilla/5.0 (compatible; SimplyFeed/0.0.1; RSS Reader)";
 const ACCEPT_ENCODING_HEADER = "gzip, deflate";
 const ACCEPT_HEADER = "text/html,application/xhtml+xml,application/xml";
 const FETCH_FEED_TIMEOUT_MS = 15000;
+const FEED_LINK_MIME_TYPES = new Set(["application/rss+xml", "application/atom+xml"]);
 const ATTR_PREFIX = "@_";
 const XMLNS_ATTR = "@_xmlns";
 
@@ -22,6 +24,18 @@ const XmlNamespaces = {
   DC: "http://purl.org/dc/elements/1.1/",
   Media: "http://search.yahoo.com/mrss/",
 } as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPotentialFeedBody(body: string): boolean {
+  const head = body
+    .trimStart()
+    .replace(/^<\?xml[^?]*\?>/i, "")
+    .trimStart();
+  return /^<(rss|feed)[\s>]/i.test(head);
+}
 
 const XmlTags = {
   title: "title",
@@ -83,22 +97,30 @@ export async function fetchItemsAndUpdateFeed(feed: Feed): Promise<FeedItem[]> {
     });
 
     const parsed = parser.parse(data);
-    const rss = parsed.rss || parsed;
-    const nsMap = getNamespacePrefixMap(rss);
-    const channel: Record<string, unknown> = rss.channel || rss.feed || rss;
-    if (!channel) {
+
+    let nsRoot: Record<string, unknown>;
+    let channel: Record<string, unknown>;
+    if (isRecord(parsed) && isRecord(parsed.rss) && isRecord(parsed.rss.channel)) {
+      nsRoot = parsed.rss;
+      channel = parsed.rss.channel;
+    } else if (isRecord(parsed) && isRecord(parsed.feed)) {
+      nsRoot = parsed.feed;
+      channel = parsed.feed;
+    } else {
+      // RSS 1.0 (<rdf:RDF>) intentionally not supported — falls into this branch.
       throw new Error("Invalid RSS/Atom feed format");
     }
 
+    const nsMap = getNamespacePrefixMap(nsRoot);
     const channelNSMap = getNamespacePrefixMap(channel);
     if (channelNSMap.size) {
       channelNSMap.forEach((value, key) => nsMap.set(key, value));
     }
 
     const link =
-      getElementAttribute(channel, XmlTags.link, `${ATTR_PREFIX}href`, nsMap, XmlNamespaces.Atom) ||
       getElementAttribute(channel, XmlTags.link, `${ATTR_PREFIX}href`) ||
-      getStringElement(channel, XmlTags.link);
+      getStringElement(channel, XmlTags.link) ||
+      getElementAttribute(channel, XmlTags.link, `${ATTR_PREFIX}href`, nsMap, XmlNamespaces.Atom);
 
     const imageUrl =
       getElementAttribute(channel, XmlTags.image, "url") ||
@@ -118,6 +140,7 @@ export async function fetchItemsAndUpdateFeed(feed: Feed): Promise<FeedItem[]> {
     feed.author = author;
     feed.copyright = getElement(channel, XmlTags.copyright);
     feed.generator = getElement(channel, XmlTags.generator);
+    feed.categories = extractCategories(channel, nsMap);
 
     // Extract feed items
     const nhm = new NodeHtmlMarkdown();
@@ -141,6 +164,74 @@ export async function fetchItemsAndUpdateFeed(feed: Feed): Promise<FeedItem[]> {
   }
 }
 
+/**
+ * Fetch the URL and extract feed URLs from <link rel="alternate"> tags. When the URL itself
+ * resolves to an RSS/Atom feed, returns [pageUrl] so callers don't need to double-fetch or
+ * guess. Returns an empty array when the page advertises no feeds.
+ * Throws on failure to fetch/parse the page.
+ */
+export async function discoverFeedCandidates(pageUrl: string): Promise<string[]> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_FEED_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(pageUrl, {
+      headers: {
+        Accept: ACCEPT_HEADER,
+        "Accept-Encoding": ACCEPT_ENCODING_HEADER,
+        "User-Agent": USER_AGENT_HEADER,
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error("Fetch failed");
+    }
+
+    const html = await response.text();
+    if (isPotentialFeedBody(html)) {
+      return [pageUrl];
+    }
+
+    const dom = new JSDOM(html);
+    const linkElements = dom.window.document.querySelectorAll('link[rel~="alternate"]');
+    const feedUrls: string[] = [];
+    const seenUrls = new Set<string>();
+
+    linkElements.forEach((element) => {
+      const mimeType = element.getAttribute("type")?.trim().toLowerCase();
+      if (!mimeType || !FEED_LINK_MIME_TYPES.has(mimeType)) {
+        return;
+      }
+
+      const href = element.getAttribute("href")?.trim();
+      if (!href) {
+        return;
+      }
+
+      let feedUrl: string;
+      try {
+        feedUrl = new URL(href, pageUrl).toString();
+      } catch {
+        return;
+      }
+
+      if (seenUrls.has(feedUrl)) {
+        return;
+      }
+
+      seenUrls.add(feedUrl);
+      feedUrls.push(feedUrl);
+    });
+
+    return feedUrls;
+  } catch (error) {
+    throw new Error(`Failed to discover feeds from ${pageUrl}: ${error instanceof Error ? error.message : "Unknown error"}`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function extractFeedItems(feedId: string, rawItems: unknown, nsMap: Map<string, string>, nhm: NodeHtmlMarkdown): FeedItem[] {
   const items: FeedItem[] = [];
   const itemArray: Record<string, unknown>[] = Array.isArray(rawItems) ? rawItems : [rawItems];
@@ -157,7 +248,8 @@ function extractFeedItems(feedId: string, rawItems: unknown, nsMap: Map<string, 
       getElementAttribute(item, XmlTags.link, `${ATTR_PREFIX}href`, nsMap, XmlNamespaces.Atom) ||
       getElementAttribute(item, XmlTags.link, `${ATTR_PREFIX}href`) ||
       getStringElement(item, XmlTags.link) ||
-      (guid && guid.isLink ? guid.guid : undefined);
+      (guid && guid.isLink ? guid.guid : undefined) ||
+      enclosureUrl;
     const author =
       getElement<string>(item, XmlTags.author, nsMap, XmlNamespaces.Itunes) ||
       getElement<string>(item, XmlTags.creator, nsMap, XmlNamespaces.DC) ||
@@ -169,12 +261,14 @@ function extractFeedItems(feedId: string, rawItems: unknown, nsMap: Map<string, 
       getElementAttribute(item, XmlTags.image, `${ATTR_PREFIX}href`, nsMap, XmlNamespaces.Itunes);
     const title = getElementAttribute(item, XmlTags.title, "#text") || getStringElement(item, XmlTags.title) || "Untitled";
     const subtitle = getElementAttribute(item, XmlTags.subtitle, "#text") || getStringElement(item, XmlTags.subtitle) || "";
-    const duration = parseDuration(getElement(item, XmlTags.duration));
+    const duration = parseDuration(
+      getElement(item, XmlTags.duration) || getElement<string>(item, XmlTags.duration, nsMap, XmlNamespaces.Itunes)
+    );
     const publishedTime = parseDate(getElement<string>(item, XmlTags.pubDate) || getElement<string>(item, XmlTags.published));
     const content = getElementAttribute(item, XmlTags.content, "#text");
     const encoded = getElementWithDefault(item, XmlTags.encoded, "", nsMap, XmlNamespaces.Content) || content || "";
     const description = getElementAttribute(item, XmlTags.description, "#text") || getStringElement(item, XmlTags.description) || "";
-    const categories = extractCategories(item);
+    const categories = extractCategories(item, nsMap);
 
     const mdContent = encoded ? nhm.translate(encoded) : "";
     const mdDesc = description ? nhm.translate(description) : "";
@@ -185,7 +279,7 @@ function extractFeedItems(feedId: string, rawItems: unknown, nsMap: Map<string, 
     }
 
     const feedItem: FeedItem = {
-      id: uuidv4(),
+      id: generateId(),
       feedId: feedId,
       feedItemType,
       title: nhm.translate(title),
@@ -252,7 +346,9 @@ function parseDuration(duration: string | number | undefined): number | undefine
 }
 
 function parseDate(dateString: string | undefined): number {
-  if (!dateString) return 0;
+  if (!dateString) {
+    return 0;
+  }
 
   const date = new Date(dateString);
   return isNaN(date.getTime()) ? 0 : date.getTime();
@@ -287,7 +383,7 @@ function getNamespacePrefixMap(data: Record<string, unknown>): Map<string, strin
   return namespaces;
 }
 
-function extractCategories(data: Record<string, unknown>): string[] {
+function extractCategories(data: Record<string, unknown>, nsMap?: Map<string, string>): string[] {
   const categories: string[] = [];
   const category = data[XmlTags.category] || data[XmlTags.categories];
   if (category) {
@@ -299,7 +395,35 @@ function extractCategories(data: Record<string, unknown>): string[] {
     });
   }
 
+  const itunesCategory = getElement<unknown>(data, XmlTags.category, nsMap, XmlNamespaces.Itunes);
+  if (itunesCategory) {
+    const itunesCategories = Array.isArray(itunesCategory) ? itunesCategory : [itunesCategory];
+    itunesCategories.forEach((cat) => collectItunesCategory(cat, nsMap, categories));
+  }
+
   return [...new Set(categories)];
+}
+
+function collectItunesCategory(category: unknown, nsMap: Map<string, string> | undefined, collected: string[]): void {
+  if (isString(category)) {
+    collected.push(category);
+    return;
+  }
+
+  if (!isRecord(category)) {
+    return;
+  }
+
+  const text = category[`${ATTR_PREFIX}text`];
+  if (isString(text)) {
+    collected.push(text);
+  }
+
+  const nested = getElement<unknown>(category, XmlTags.category, nsMap, XmlNamespaces.Itunes);
+  if (nested) {
+    const nestedList = Array.isArray(nested) ? nested : [nested];
+    nestedList.forEach((child) => collectItunesCategory(child, nsMap, collected));
+  }
 }
 
 function getElement<T>(data: Record<string, unknown>, key: string, nsMap?: Map<string, string>, namespace?: string): T | undefined {
@@ -356,6 +480,7 @@ function getElementAttribute<T = string>(
 
     return value[attr] as T | undefined;
   }
+
   return undefined;
 }
 

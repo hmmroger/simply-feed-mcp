@@ -1,12 +1,12 @@
 import { join } from "path";
 import OpenAI from "openai";
-import { v4 as uuidv4 } from "uuid";
+import { generateId } from "../common/id-utils.js";
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { Feed, FeedItem } from "./simply-feed.types.js";
 import { AzureTableReadWriter } from "./azure-table-read-writer.js";
 import { ILogger } from "../common/logger.types.js";
-import { fetchItemsAndUpdateFeed } from "./feed-reader.js";
+import { discoverFeedCandidates, fetchItemsAndUpdateFeed } from "./feed-reader.js";
 import {
   QUERY_USER_PROMPT,
   SUMMARY_SYSTEM_PROMPT,
@@ -25,7 +25,6 @@ const FEED_ITEMS_TABLE_NAME = "feeditems";
 const FEED_PARTITION = "default";
 const FEEDS_CACHE_MAX_AGE_IN_MINUTES = 5;
 const DEFAULT_RETENTION_DAYS = 5;
-const DEFAULT_PREVIEW_FEED_ITEMS = 10;
 
 const SummaryResultSchema = z.object({
   summary: z.string().describe("A concise summary of the content"),
@@ -116,7 +115,7 @@ export class SimplyFeedManager {
   }
 
   public async getFeedFromUrl(feedUrl: string): Promise<Feed | undefined> {
-    let feed = Array.from(this.cachedFeeds.values()).find((feed) => feed.feedUrl === feedUrl);
+    let feed = Array.from(this.cachedFeeds.values()).find((feed) => feed.feedUrl.toLowerCase() === feedUrl.toLowerCase());
     if (!feed) {
       try {
         const feeds = await this.feedReadWriter.queryObjects<Feed>(`extra_feedUrl eq '${feedUrl}'`);
@@ -292,18 +291,27 @@ export class SimplyFeedManager {
       .slice(0, limit || undefined);
   }
 
-  public async previewFeedFromUrl(feedUrl: string, limit?: number): Promise<{ feed: Feed; feedItems: FeedItem[] }> {
-    const feed = await this.getFeedFromUrl(feedUrl);
-    if (feed) {
-      const feedItems = await this.getItemsFromFeed(feed.id, limit ?? DEFAULT_PREVIEW_FEED_ITEMS);
-      return { feed, feedItems };
+  public async detectFeeds(pageUrl: string): Promise<Feed[]> {
+    const candidateUrls = await discoverFeedCandidates(pageUrl);
+    if (candidateUrls.length === 0) {
+      return [];
     }
 
-    const tempFeed = this.createFeed(feedUrl);
-    const allItems = await fetchItemsAndUpdateFeed(tempFeed);
-    const feedItems = allItems.slice(0, limit ?? DEFAULT_PREVIEW_FEED_ITEMS);
+    const results = await Promise.allSettled(
+      candidateUrls.map(async (feedUrl) => {
+        const feed = this.createFeed(feedUrl);
+        await fetchItemsAndUpdateFeed(feed);
+        return feed;
+      })
+    );
 
-    return { feed: tempFeed, feedItems };
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        this.logger.warning(`Feed candidate [${candidateUrls[index]}] validation failed: ${result.reason}`);
+      }
+    });
+
+    return results.filter((result): result is PromiseFulfilledResult<Feed> => result.status === "fulfilled").map((result) => result.value);
   }
 
   public async refreshFeed(id: string, includeExistingTopics: boolean = false): Promise<FeedItem[]> {
@@ -323,9 +331,16 @@ export class SimplyFeedManager {
 
     const currentFeedItems = await this.getItemsFromFeed(feed.id);
     const existingItemKeys = new Set(currentFeedItems.map((item) => item.guid?.guid || item.link));
+    const expiredTime = this.retentionDays > 0 ? Date.now() - this.retentionDays * 24 * 60 * 60 * 1000 : 0;
+    // Drop items already past the retention window so they don't trigger summaries
+    // and storage writes only to be immediately pruned below.
     const newItems = items.filter((item) => {
       const itemKey = item.guid?.guid || item.link;
-      return !existingItemKeys.has(itemKey);
+      if (existingItemKeys.has(itemKey)) {
+        return false;
+      }
+
+      return expiredTime === 0 || item.publishedTime > expiredTime;
     });
     const retryItems = currentFeedItems.filter((existingItem) => !existingItem.summary);
 
@@ -360,9 +375,16 @@ export class SimplyFeedManager {
     }
 
     if (this.retentionDays > 0) {
-      const expiredTime = Date.now() - this.retentionDays * 24 * 60 * 60 * 1000;
-      const keysToDelete = currentFeedItems.filter((item) => item.publishedTime <= expiredTime).map((item) => item.id);
-      await this.feedItemsReadWriter.deleteObjects(keysToDelete, feed.id);
+      const cached = this.cachedItems.get(feed.id) ?? currentFeedItems;
+      const expiredIds = cached.filter((item) => item.publishedTime <= expiredTime).map((item) => item.id);
+      if (expiredIds.length > 0) {
+        await this.feedItemsReadWriter.deleteObjects(expiredIds, feed.id);
+        const expiredIdSet = new Set(expiredIds);
+        this.cachedItems.set(
+          feed.id,
+          cached.filter((item) => !expiredIdSet.has(item.id))
+        );
+      }
     }
 
     // update feed
@@ -462,7 +484,7 @@ export class SimplyFeedManager {
 
   private createFeed(feedUrl: string): Feed {
     return {
-      id: uuidv4(),
+      id: generateId(),
       title: "Untitled Feed",
       subtitle: "",
       description: "",
