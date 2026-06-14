@@ -18,7 +18,7 @@
     "type": "git",
     "url": "https://github.com/hmmroger/simply-feed-mcp.git"
   },
-  "version": "0.0.8",
+  "version": "0.0.9",
   "main": "./dist/api.js",
   "types": "./dist/api.d.ts",
   "exports": {
@@ -51,7 +51,7 @@
     "@types/jsdom": "^28.0.1",
     "@types/node": "^22.19.17",
     "@types/yargs": "^17.0.35",
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.3",
     "eslint": "^9.39.4",
     "npm-run-all": "^4.1.5",
     "typescript": "^5.9.3",
